@@ -1,5 +1,6 @@
 **/__pycache__
 **/.idea
 **/data
+**/PASCAL_VOC
 *.pth
 *.tar
