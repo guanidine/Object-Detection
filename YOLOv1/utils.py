@@ -416,6 +416,8 @@ def plot_couple_examples(model, loader):
                 box_format="midpoint"
             )
             plot_image(x[idx].permute(1, 2, 0).to("cpu"), bboxes)
+        import sys
+        sys.exit()
     model.train()
 
 

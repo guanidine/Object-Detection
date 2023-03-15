@@ -1,4 +1,3 @@
-import torch
 import torch.optim as optim
 from tqdm import tqdm
 
@@ -40,17 +39,16 @@ def main():
     loss_fn = YoloLoss()
 
     if config.LOAD_MODEL:
-        load_checkpoint(torch.load(config.LOAD_MODEL_FILE), model, optimizer, config.LEARNING_RATE)
+        load_checkpoint(config.LOAD_MODEL_FILE, model, optimizer, config.LEARNING_RATE)
 
     train_loader, test_loader = get_loaders(
-        train_csv_path=config.DATASET + "/100examples.csv", test_csv_path=config.DATASET + "/test.csv"
+        train_csv_path=config.DATASET + "/train.csv", test_csv_path=config.DATASET + "/test.csv"
     )
 
     for epoch in range(config.NUM_EPOCHS):
         if config.TEST_MODE:
-            plot_couple_examples(model, test_loader)
-            import sys
-            sys.exit()
+            # plot_couple_examples(model, test_loader) perform extremely bad
+            plot_couple_examples(model, train_loader)
 
         pred_boxes, target_boxes = get_evaluation_bboxes(
             train_loader, model, iou_threshold=0.5, prob_threshold=0.4
