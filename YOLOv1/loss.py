@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from metrics.iou import intersection_over_union
+from utils import intersection_over_union
 
 
 class YoloLoss(nn.Module):

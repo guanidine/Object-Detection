@@ -1,9 +1,15 @@
+import os
+import random
 from collections import Counter
 
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
+from tqdm.contrib import tenumerate
+
+import config
 
 
 def intersection_over_union(
@@ -52,6 +58,48 @@ def intersection_over_union(
     box2_area = abs((box2_x2 - box2_x1) * (box2_y1 - box2_y2))
 
     return intersection / (box1_area + box2_area - intersection + 1e-6)
+
+
+def non_max_suppression(
+        bboxes: list[list],
+        iou_threshold: float,
+        prob_threshold: float,
+        box_format: str = "corners"
+) -> list[list]:
+    """
+    Does Non Max Suppression given bboxes.
+    Parameters:
+        bboxes (list): list of lists containing all bboxes with each bboxes
+            specified as [class_pred, prob_score, x1, y1, x2, y2]
+        iou_threshold (float): threshold where predicted bboxes is correct
+        prob_threshold (float): threshold to remove predicted bboxes (independent of IoU)
+        box_format (str): "midpoint" or "corners" used to specify bboxes
+    Returns:
+        list: bboxes after performing NMS given a specific IoU threshold.
+    """
+    bboxes = [box for box in bboxes if box[1] > prob_threshold]
+    bboxes = sorted(bboxes, key=lambda x: x[1], reverse=True)
+    bboxes_after_nms = []
+
+    while bboxes:
+        chosen_box = bboxes.pop(0)
+
+        bboxes = [
+            box
+            for box in bboxes
+            if
+            box[0] != chosen_box[0]
+            or
+            intersection_over_union(
+                torch.tensor(chosen_box[2:]),
+                torch.tensor(box[2:]),
+                box_format=box_format
+            ) < iou_threshold
+        ]
+
+        bboxes_after_nms.append(chosen_box)
+
+    return bboxes_after_nms
 
 
 def mean_avg_precision(
@@ -152,50 +200,11 @@ def mean_avg_precision(
     return sum(average_precisions) / len(average_precisions)
 
 
-def non_max_suppression(
-        bboxes: list[list],
-        iou_threshold: float,
-        prob_threshold: float,
-        box_format: str = "corners"
-) -> list[list]:
-    """
-    Does Non Max Suppression given bboxes.
-    Parameters:
-        bboxes (list): list of lists containing all bboxes with each bboxes
-            specified as [class_pred, prob_score, x1, y1, x2, y2]
-        iou_threshold (float): threshold where predicted bboxes is correct
-        prob_threshold (float): threshold to remove predicted bboxes (independent of IoU)
-        box_format (str): "midpoint" or "corners" used to specify bboxes
-    Returns:
-        list: bboxes after performing NMS given a specific IoU threshold.
-    """
-    bboxes = [box for box in bboxes if box[1] > prob_threshold]
-    bboxes = sorted(bboxes, key=lambda x: x[1], reverse=True)
-    bboxes_after_nms = []
-
-    while bboxes:
-        chosen_box = bboxes.pop(0)
-
-        bboxes = [
-            box
-            for box in bboxes
-            if
-            box[0] != chosen_box[0]
-            or
-            intersection_over_union(
-                torch.tensor(chosen_box[2:]),
-                torch.tensor(box[2:]),
-                box_format=box_format
-            ) < iou_threshold
-        ]
-
-        bboxes_after_nms.append(chosen_box)
-
-    return bboxes_after_nms
-
-
 def plot_image(image, boxes):
     """Plots predicted bounding boxes on the image"""
+    cmap = plt.get_cmap("tab20b")
+    class_labels = config.COCO_LABELS if config.DATASET == 'COCO' else config.PASCAL_CLASSES
+    colors = [cmap(i) for i in np.linspace(0, 1, len(class_labels))]
     im = np.array(image)
     height, width, _ = im.shape
 
@@ -207,34 +216,42 @@ def plot_image(image, boxes):
     # box[0] is x midpoint, box[2] is width
     # box[1] is y midpoint, box[3] is height
 
-    # Create a Rectangle potch
+    # Create a Rectangle patch
     for box in boxes:
+        assert len(box) == 6, "box should contain class pred, confidence, x, y, width, height"
+        class_pred = box[0]
         box = box[2:]
-        assert len(box) == 4, "Got more values than in x, y, w, h, in a box!"
         upper_left_x = box[0] - box[2] / 2
         upper_left_y = box[1] - box[3] / 2
         rect = patches.Rectangle(
             (upper_left_x * width, upper_left_y * height),
             box[2] * width,
             box[3] * height,
-            linewidth=1,
-            edgecolor="r",
+            linewidth=2,
+            edgecolor=colors[int(class_pred)],
             facecolor="none",
         )
         # Add the patch to the Axes
         ax.add_patch(rect)
+        plt.text(
+            upper_left_x * width,
+            upper_left_y * height,
+            s=class_labels[int(class_pred)],
+            color="white",
+            verticalalignment="top",
+            bbox={"color": colors[int(class_pred)], "pad": 0},
+        )
 
     plt.show()
 
 
-def get_bboxes(
+def get_evaluation_bboxes(
         loader,
         model,
         iou_threshold,
         prob_threshold,
-        pred_format="cells",
         box_format="midpoint",
-        device="cuda",
+        device="cuda"
 ):
     all_pred_boxes = []
     all_true_boxes = []
@@ -243,7 +260,7 @@ def get_bboxes(
     model.eval()
     train_idx = 0
 
-    for batch_idx, (x, labels) in enumerate(loader):
+    for batch_idx, (x, labels) in tenumerate(loader):
         x = x.to(device)
         labels = labels.to(device)
 
@@ -251,8 +268,8 @@ def get_bboxes(
             predictions = model(x)
 
         batch_size = x.shape[0]
-        true_bboxes = cellboxes_to_boxes(labels)
-        bboxes = cellboxes_to_boxes(predictions)
+        true_bboxes = cells_to_bboxes(labels)
+        bboxes = cells_to_bboxes(predictions)
 
         for idx in range(batch_size):
             nms_boxes = non_max_suppression(
@@ -262,15 +279,10 @@ def get_bboxes(
                 box_format=box_format,
             )
 
-            # if batch_idx == 0 and idx == 0:
-            #    plot_image(x[idx].permute(1,2,0).to("cpu"), nms_boxes)
-            #    print(nms_boxes)
-
             for nms_box in nms_boxes:
                 all_pred_boxes.append([train_idx] + nms_box)
 
             for box in true_bboxes[idx]:
-                # many will get converted to 0 pred
                 if box[1] > prob_threshold:
                     all_true_boxes.append([train_idx] + box)
 
@@ -317,7 +329,7 @@ def convert_cellboxes(predictions, S=7):
     return converted_preds
 
 
-def cellboxes_to_boxes(out, S=7):
+def cells_to_bboxes(out, S=7):
     converted_pred = convert_cellboxes(out).reshape(out.shape[0], S * S, -1)
     converted_pred[..., 0] = converted_pred[..., 0].long()
     all_bboxes = []
@@ -332,12 +344,87 @@ def cellboxes_to_boxes(out, S=7):
     return all_bboxes
 
 
-def save_checkpoint(state, filename="checkpoint.pth.tar"):
+def save_checkpoint(model, optimizer, filename="checkpoint.pth.tar"):
     print("=> Saving checkpoint")
-    torch.save(state, filename)
+    checkpoint = {
+        "state_dict": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+    }
+    torch.save(checkpoint, filename)
 
 
-def load_checkpoint(checkpoint, model, optimizer):
+def load_checkpoint(checkpoint, model, optimizer, lr):
     print("=> Loading checkpoint")
+    checkpoint = torch.load(checkpoint, map_location=config.DEVICE)
     model.load_state_dict(checkpoint["state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer"])
+
+    # If we don't do this then it will just have learning rate of old checkpoint,
+    # and it will lead to many hours of debugging \:
+    for param_group in optimizer.param_groups:
+        param_group["lr"] = lr
+
+
+def get_loaders(train_csv_path, test_csv_path):
+    from dataset import VOCDataset
+
+    train_dataset = VOCDataset(
+        train_csv_path,
+        transform=config.transform,
+        img_dir=config.IMG_DIR,
+        label_dir=config.LABEL_DIR
+    )
+
+    test_dataset = VOCDataset(
+        test_csv_path,
+        transform=config.transform,
+        img_dir=config.IMG_DIR,
+        label_dir=config.LABEL_DIR
+    )
+
+    train_loader = DataLoader(
+        dataset=train_dataset,
+        batch_size=config.BATCH_SIZE,
+        num_workers=config.NUM_WORKERS,
+        pin_memory=config.PIN_MEMORY,
+        shuffle=True,
+        drop_last=True
+    )
+
+    test_loader = DataLoader(
+        dataset=test_dataset,
+        batch_size=config.BATCH_SIZE,
+        num_workers=config.NUM_WORKERS,
+        pin_memory=config.PIN_MEMORY,
+        shuffle=True,
+        drop_last=True
+    )
+
+    return train_loader, test_loader
+
+
+def plot_couple_examples(model, loader):
+    model.eval()
+    for x, y in loader:
+        x = x.to(config.DEVICE)
+        for idx in range(config.BATCH_SIZE):
+            bboxes = cells_to_bboxes(model(x))
+            bboxes = non_max_suppression(
+                bboxes[idx],
+                iou_threshold=0.5,
+                prob_threshold=0.4,
+                box_format="midpoint"
+            )
+            plot_image(x[idx].permute(1, 2, 0).to("cpu"), bboxes)
+    model.train()
+
+
+def seed_everything(seed=42):
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
