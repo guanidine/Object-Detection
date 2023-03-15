@@ -63,6 +63,10 @@ def main():
 
         if config.SAVE_MODEL and mean_avg_prec > 0.9:
             save_checkpoint(model, optimizer, filename=f"checkpoint.pth.tar")
+            import sys
+            import time
+            time.sleep(10)
+            sys.exit()
 
         train_fn(train_loader, model, optimizer, loss_fn)
 
