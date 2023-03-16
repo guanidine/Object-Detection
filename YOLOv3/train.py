@@ -11,6 +11,7 @@ from utils import (
     mean_avg_precision,
     get_evaluation_bboxes,
     load_checkpoint,
+    save_checkpoint,
     check_class_accuracy,
     get_loaders
 )
@@ -52,9 +53,7 @@ def train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors):
 
 def main():
     model = YOLOv3(num_classes=config.NUM_CLASSES).to(config.DEVICE)
-    optimizer = optim.Adam(
-        model.parameters(), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY
-    )
+    optimizer = optim.Adam(model.parameters(), lr=config.LEARNING_RATE, weight_decay=config.WEIGHT_DECAY)
     loss_fn = YoloLoss()
     scaler = torch.cuda.amp.GradScaler()
 
@@ -63,9 +62,7 @@ def main():
     )
 
     if config.LOAD_MODEL:
-        load_checkpoint(
-            config.CHECKPOINT_FILE, model, optimizer, config.LEARNING_RATE
-        )
+        load_checkpoint(config.CHECKPOINT_FILE, model, optimizer, config.LEARNING_RATE)
 
     scaled_anchors = (
             torch.tensor(config.ANCHORS)
@@ -76,13 +73,8 @@ def main():
         # plot_couple_examples(model, test_loader, 0.6, 0.5, scaled_anchors)
         train_fn(train_loader, model, optimizer, loss_fn, scaler, scaled_anchors)
 
-        # if config.SAVE_MODEL:
-        #    save_checkpoint(model, optimizer, filename=f"checkpoint.pth.tar")
-
-        # print(f"Currently epoch {epoch}")
-        # print("On Train Eval loader:")
-        # print("On Train loader:")
-        # check_class_accuracy(model, train_loader, threshold=config.CONF_THRESHOLD)
+        if config.SAVE_MODEL:
+            save_checkpoint(model, optimizer, filename=f"checkpoint.pth.tar")
 
         if True:
             check_class_accuracy(model, test_loader, threshold=config.CONF_THRESHOLD)
@@ -91,14 +83,14 @@ def main():
                 model,
                 iou_threshold=config.NMS_IOU_THRESH,
                 prob_threshold=config.CONF_THRESHOLD,
-                anchors=config.ANCHORS,
+                anchors=config.ANCHORS
             )
             mapval = mean_avg_precision(
                 pred_boxes,
                 true_boxes,
                 iou_threshold=config.MAP_IOU_THRESH,
                 box_format="midpoint",
-                num_classes=config.NUM_CLASSES,
+                num_classes=config.NUM_CLASSES
             )
             print(f"MAP: {mapval.item()}")
             model.train()

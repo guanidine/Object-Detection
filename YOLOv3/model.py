@@ -1,5 +1,5 @@
 import torch
-import torch.nn as nn
+from torch import nn
 
 """ 
 Information about architecture config:
@@ -9,7 +9,7 @@ List is structured by "B" indicating a residual block followed by the number of 
 "S" is for scale prediction block and computing the yolo loss
 "U" is for upsampling the feature map and concatenating with a previous layer
 """
-config = [
+architecture_config = [
     (32, 3, 1),
     (64, 3, 2),
     ["B", 1],
@@ -46,21 +46,18 @@ class CNNBlock(nn.Module):
         self.use_bn_act = bn_act
 
     def forward(self, x):
-        if self.use_bn_act:
-            return self.leaky(self.bn(self.conv(x)))
-        else:
-            return self.conv(x)
+        return self.leaky(self.bn(self.conv(x))) if self.use_bn_act else self.conv(x)
 
 
 class ResidualBlock(nn.Module):
     def __init__(self, channels, use_residual=True, num_repeats=1):
         super().__init__()
         self.layers = nn.ModuleList()
-        for repeat in range(num_repeats):
+        for _ in range(num_repeats):
             self.layers += [
                 nn.Sequential(
                     CNNBlock(channels, channels // 2, kernel_size=1),
-                    CNNBlock(channels // 2, channels, kernel_size=3, padding=1),
+                    CNNBlock(channels // 2, channels, kernel_size=3, padding=1)
                 )
             ]
 
@@ -69,11 +66,7 @@ class ResidualBlock(nn.Module):
 
     def forward(self, x):
         for layer in self.layers:
-            if self.use_residual:
-                x = x + layer(x)
-            else:
-                x = layer(x)
-
+            x = x + layer(x) if self.use_residual else layer(x)
         return x
 
 
@@ -82,18 +75,15 @@ class ScalePrediction(nn.Module):
         super().__init__()
         self.pred = nn.Sequential(
             CNNBlock(in_channels, 2 * in_channels, kernel_size=3, padding=1),
-            CNNBlock(
-                2 * in_channels, (num_classes + 5) * 3, bn_act=False, kernel_size=1
-            ),
+            CNNBlock(2 * in_channels, (num_classes + 5) * 3, bn_act=False, kernel_size=1)
         )
         self.num_classes = num_classes
 
     def forward(self, x):
-        return (
-            self.pred(x)
-            .reshape(x.shape[0], 3, self.num_classes + 5, x.shape[2], x.shape[3])
+        # N x 5 x 52 x 52 x (5+C)
+        return self.pred(x) \
+            .reshape(x.shape[0], 3, self.num_classes + 5, x.shape[2], x.shape[3]) \
             .permute(0, 1, 3, 4, 2)
-        )
 
 
 class YOLOv3(nn.Module):
@@ -126,47 +116,49 @@ class YOLOv3(nn.Module):
         layers = nn.ModuleList()
         in_channels = self.in_channels
 
-        for module in config:
+        for module in architecture_config:
             if isinstance(module, tuple):
                 out_channels, kernel_size, stride = module
-                layers.append(
-                    CNNBlock(
-                        in_channels,
-                        out_channels,
-                        kernel_size=kernel_size,
-                        stride=stride,
-                        padding=1 if kernel_size == 3 else 0,
-                    )
-                )
+                layers.append(CNNBlock(
+                    in_channels,
+                    out_channels,
+                    kernel_size=kernel_size,
+                    stride=stride,
+                    padding=1 if kernel_size == 3 else 0
+                ))
                 in_channels = out_channels
 
             elif isinstance(module, list):
                 num_repeats = module[1]
-                layers.append(ResidualBlock(in_channels, num_repeats=num_repeats, ))
+                layers.append(ResidualBlock(in_channels, num_repeats=num_repeats))
 
             elif isinstance(module, str):
                 if module == "S":
                     layers += [
                         ResidualBlock(in_channels, use_residual=False, num_repeats=1),
                         CNNBlock(in_channels, in_channels // 2, kernel_size=1),
-                        ScalePrediction(in_channels // 2, num_classes=self.num_classes),
+                        ScalePrediction(in_channels // 2, num_classes=self.num_classes)
                     ]
                     in_channels = in_channels // 2
 
                 elif module == "U":
-                    layers.append(nn.Upsample(scale_factor=2), )
+                    layers.append(nn.Upsample(scale_factor=2))
                     in_channels = in_channels * 3
 
         return layers
 
 
-if __name__ == "__main__":
+def test():
     num_classes = 20
     IMAGE_SIZE = 416
     model = YOLOv3(num_classes=num_classes)
     x = torch.randn((2, 3, IMAGE_SIZE, IMAGE_SIZE))
-    out = model(x)
     assert model(x)[0].shape == (2, 3, IMAGE_SIZE // 32, IMAGE_SIZE // 32, num_classes + 5)
     assert model(x)[1].shape == (2, 3, IMAGE_SIZE // 16, IMAGE_SIZE // 16, num_classes + 5)
     assert model(x)[2].shape == (2, 3, IMAGE_SIZE // 8, IMAGE_SIZE // 8, num_classes + 5)
+    print("")
     print("Success!")
+
+
+if __name__ == '__main__':
+    test()
