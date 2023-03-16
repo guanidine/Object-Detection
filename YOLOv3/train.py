@@ -8,7 +8,7 @@ import config
 from loss import YoloLoss
 from model import YOLOv3
 from utils import (
-    mean_average_precision,
+    mean_avg_precision,
     get_evaluation_bboxes,
     load_checkpoint,
     check_class_accuracy,
@@ -90,10 +90,10 @@ def main():
                 test_loader,
                 model,
                 iou_threshold=config.NMS_IOU_THRESH,
+                prob_threshold=config.CONF_THRESHOLD,
                 anchors=config.ANCHORS,
-                threshold=config.CONF_THRESHOLD,
             )
-            mapval = mean_average_precision(
+            mapval = mean_avg_precision(
                 pred_boxes,
                 true_boxes,
                 iou_threshold=config.MAP_IOU_THRESH,

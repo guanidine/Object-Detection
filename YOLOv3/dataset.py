@@ -27,7 +27,7 @@ class YOLODataset(Dataset):
             image_size=416,
             S=[13, 26, 52],
             C=20,
-            transform=None,
+            transform=None
     ):
         self.annotations = pd.read_csv(csv_file)
         self.img_dir = img_dir
@@ -73,7 +73,7 @@ class YOLODataset(Dataset):
                     x_cell, y_cell = S * x - j, S * y - i  # both between [0,1]
                     width_cell, height_cell = (
                         width * S,
-                        height * S,
+                        height * S
                     )  # can be greater than 1 since it's relative to cell
                     box_coordinates = torch.tensor(
                         [x_cell, y_cell, width_cell, height_cell]
@@ -116,7 +116,7 @@ def test():
             boxes += cells_to_bboxes(
                 y[i], is_preds=False, S=y[i].shape[2], anchors=anchor
             )[0]
-        boxes = nms(boxes, iou_threshold=1, threshold=0.7, box_format="midpoint")
+        boxes = nms(boxes, iou_threshold=1, prob_threshold=0.7, box_format="midpoint")
         print(boxes)
         plot_image(x[0].permute(1, 2, 0).to("cpu"), boxes)
 
