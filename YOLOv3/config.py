@@ -9,7 +9,7 @@ DATASET = 'data'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 seed_everything()
 NUM_WORKERS = 4
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 IMAGE_SIZE = 416
 NUM_CLASSES = 20
 LEARNING_RATE = 1e-5

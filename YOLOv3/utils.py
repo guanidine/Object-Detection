@@ -277,7 +277,7 @@ def get_evaluation_bboxes(
 
     for batch_idx, (x, labels) in tenumerate(loader):
         x = x.to(device)
-        labels = labels.to(device)
+        # labels = labels.to(device)
 
         with torch.no_grad():
             predictions = model(x)
